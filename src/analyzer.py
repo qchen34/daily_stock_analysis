@@ -347,6 +347,7 @@ class GeminiAnalyzer:
 - 只做多头排列的股票，空头排列坚决不碰
 - 均线发散上行优于均线粘合
 - 趋势强度判断：看均线间距是否在扩大
+- MACD：用来确认趋势、金叉/死叉、是否站在零轴上
 
 ### 3. 效率优先（筹码结构）
 - 关注筹码集中度：90%集中度 < 15% 表示筹码集中
@@ -926,6 +927,10 @@ class GeminiAnalyzer:
                 )
                 
                 if response and response.text:
+                    try:
+                        self._log_gemini_token_usage(response)
+                    except Exception:
+                        logger.debug("[LLM用量] 记录 Gemini token 用量时出错", exc_info=True)
                     return response.text
                 else:
                     raise ValueError("Gemini 返回空响应")
@@ -1005,6 +1010,28 @@ class GeminiAnalyzer:
 
         # 所有备选均耗尽
         raise last_error or Exception("所有 AI API 调用失败，已达最大重试次数")
+
+    def _log_gemini_token_usage(self, response) -> None:
+        """从 Gemini 响应中提取 token 用量并写入日志。"""
+        usage = getattr(response, "usage_metadata", None)
+        if not usage:
+            return
+
+        def _get(obj, name: str):
+            if hasattr(obj, name):
+                return getattr(obj, name)
+            if isinstance(obj, dict):
+                return obj.get(name)
+            return None
+
+        prompt_tokens = _get(usage, "prompt_token_count")
+        output_tokens = _get(usage, "candidates_token_count")
+        total_tokens = _get(usage, "total_token_count")
+
+        logger.info(
+            "[LLM用量] Gemini tokens: prompt=%s, output=%s, total=%s",
+            prompt_tokens, output_tokens, total_tokens,
+        )
     
     def analyze(
         self, 
@@ -1072,9 +1099,25 @@ class GeminiAnalyzer:
                 if hasattr(self._model, 'model_name'):
                     model_name = self._model.model_name
             
+            # 预估 Prompt token 数（仅在使用 Gemini 时统计）
+            prompt_tokens = None
+            if not self._use_openai and not self._use_anthropic and getattr(self, "_model", None) is not None:
+                try:
+                    if hasattr(self._model, "count_tokens"):
+                        token_info = self._model.count_tokens(prompt)
+                        prompt_tokens = getattr(token_info, "total_tokens", None)
+                        if prompt_tokens is None:
+                            prompt_tokens = getattr(token_info, "total_token_count", None)
+                        if prompt_tokens is None and hasattr(token_info, "prompt_token_count"):
+                            prompt_tokens = getattr(token_info, "prompt_token_count", None)
+                except Exception as e:
+                    logger.debug(f"[LLM配置] 统计 Prompt token 失败: {e}")
+
             logger.info(f"========== AI 分析 {name}({code}) ==========")
             logger.info(f"[LLM配置] 模型: {model_name}")
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
+            if prompt_tokens is not None:
+                logger.info(f"[LLM配置] Prompt 预估 token 数: {prompt_tokens}")
             logger.info(f"[LLM配置] 是否包含新闻: {'是' if news_context else '否'}")
             
             # 记录完整 prompt 到日志（INFO级别记录摘要，DEBUG记录完整）
