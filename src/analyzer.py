@@ -1178,6 +1178,54 @@ class GeminiAnalyzer:
                 error_message=str(e),
             )
     
+    def run_custom_prompt(
+        self,
+        prompt: str,
+        *,
+        temperature: Optional[float] = None,
+        max_output_tokens: int = 4096,
+        log_prefix: str = "[LLM自定义调用]"
+    ) -> str:
+        """
+        使用当前已初始化的 LLM 客户端执行一次自定义 Prompt 调用。
+
+        适用场景：
+        - 多分析师辩论等不依赖内置 SYSTEM_PROMPT 的扩展能力
+        - 需要直接控制 Prompt 与输出长度的场景
+
+        注意：
+        - 仍然复用现有的重试与降级逻辑（Gemini/Anthropic/OpenAI）
+        - 不负责解析返回结果，仅返回原始文本
+        """
+        config = get_config()
+        generation_config = {
+            "temperature": temperature if temperature is not None else config.gemini_temperature,
+            "max_output_tokens": max_output_tokens,
+        }
+
+        logger.info(
+            "%s 开始，自定义 Prompt 长度: %d 字符",
+            log_prefix,
+            len(prompt),
+        )
+        prompt_preview = prompt[:500] + "..." if len(prompt) > 500 else prompt
+        logger.debug("%s Prompt 预览:\n%s", log_prefix, prompt_preview)
+
+        start_time = time.time()
+        response_text = self._call_api_with_retry(prompt, generation_config)
+        elapsed = time.time() - start_time
+
+        logger.info(
+            "%s 完成，耗时 %.2fs，响应长度: %d 字符",
+            log_prefix,
+            elapsed,
+            len(response_text),
+        )
+        response_preview = response_text[:300] + "..." if len(response_text) > 300 else response_text
+        logger.debug("%s 响应预览:\n%s", log_prefix, response_preview)
+
+        return response_text
+    
     def _format_prompt(
         self, 
         context: Dict[str, Any], 

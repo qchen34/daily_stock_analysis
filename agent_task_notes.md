@@ -15,13 +15,18 @@
 - **Telegram 与代理调试（流程层面）**  
   - 明确了 `.env` 中 `USE_PROXY/PROXY_HOST/PROXY_PORT` 与系统/Clash 代理的关系，并通过临时脚本验证 Telegram `chat_id` 和代理是否生效（这些脚本本身不再修改）。
 
+- **多分析师辩论模块 - 第一阶段落地**  
+  - 在 `src/analyzer.py` 中为 `GeminiAnalyzer` 增加了通用调用方法 `run_custom_prompt()`，可以在不走内置 SYSTEM_PROMPT 的前提下，复用现有的重试与降级逻辑执行自定义 Prompt（后续多角色辩论等扩展能力统一走这一入口）。  
+  - 新建 `src/services/debate_service.py`：实现 `DebateService` / `DebateResult` / `DebateAnalystView`，支持基于已有 `AnalysisResult` + 当前标的仓位百分比构造专用 Prompt，调用 LLM 完成多分析师辩论，并输出结构化结果与 `to_markdown()`。  
+  - 新增 `debate_test_script.py`：提供一个独立的可行性测试脚本，从数据库中读取最近一次分析历史记录，还原 `AnalysisResult`，调用 `DebateService.run_debate()`，并把 `## 多风格分析师辩论` 章节的 Markdown 打印到终端及保存到 `reports/debate_*.md`，方便离线调试与 Prompt 迭代。
+
 ## 后续实现计划（按推荐顺序）
 
-1. **实现多分析师辩论服务层**  
-   - 新建 `src/services/debate_service.py`：  
-     - 输入：`AnalysisResult` + 当前标的的 `position_pct`（可由 `PortfolioSnapshot` 提供）。  
-     - 输出：结构化的 `DebateResult`（包含每位分析师观点、互评、综合结论），并提供 `to_markdown()` 生成可直接插入报告的 Markdown 段落。  
-     - 内部：使用 `debate_profile` 中的分析师人设 + `position_profile` 的仓位描述，构造一个专用 Prompt，调用现有 `GeminiAnalyzer`（或单独的 LLM 客户端）完成一次多角色辩论调用。
+1. **多分析师辩论服务层（集成与迭代阶段）**  
+   - 基于当前已实现的 `DebateService`：  
+     - 补充与 `PortfolioSnapshot` 的集成入口（例如从 WebUI 或配置中注入当前组合快照，再在调用 `DebateService` 时自动获取 `position_pct`）。  
+     - 根据实际调用效果继续打磨辩论 Prompt：包括角色说话风格、互评深度、综合结论的结构等。  
+     - 如需要，对 `DebateResult` 的字段做小幅调整，使其与个股 Markdown 报告的拼接更自然。
 
 2. **在报告生成流程中挂接辩论模块（只针对个股报告）**  
    - 在个股分析结果生成 Markdown 的位置（例如 `NotificationService` 中与个股报告相关的 formatter，或 `core/pipeline` 汇总代码）引入一个可选步骤：  
