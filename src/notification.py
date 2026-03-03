@@ -22,6 +22,7 @@ import json
 import smtplib
 import re
 import time
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from email.mime.text import MIMEText
@@ -3374,8 +3375,14 @@ class NotificationService:
             date_str = datetime.now().strftime('%Y%m%d')
             filename = f"report_{date_str}.md"
         
-        # 确保 reports 目录存在（使用项目根目录下的 reports）
-        reports_dir = Path(__file__).parent.parent / 'reports'
+        # 优先使用本次运行设置的子目录（由 main.py 设置 REPORTS_RUN_DIR）
+        run_dir = os.getenv("REPORTS_RUN_DIR")
+        if run_dir:
+            reports_dir = Path(run_dir)
+        else:
+            # 回退：使用项目根目录下的 reports
+            reports_dir = Path(__file__).parent.parent / 'reports'
+        
         reports_dir.mkdir(parents=True, exist_ok=True)
         
         filepath = reports_dir / filename

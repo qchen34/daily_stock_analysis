@@ -21,6 +21,7 @@ from json_repair import repair_json
 from src.analyzer import AnalysisResult, GeminiAnalyzer
 from src.core.debate_profile import AnalystProfile, PositionBucket, get_default_analyst_profiles
 from src.core.position_profile import describe_position_bucket
+from src.core.guru_profile import GuruHoldingsContext, GuruPortfolioSnapshot, GuruPosition
 
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,7 @@ class DebateService:
         base_result: AnalysisResult,
         position_pct: Optional[float] = None,
         analyst_profiles: Optional[List[AnalystProfile]] = None,
+        guru_context: Optional[GuruHoldingsContext] = None,
     ) -> Optional[DebateResult]:
         """
         执行一次多分析师辩论。
@@ -187,6 +189,7 @@ class DebateService:
             position_bucket=bucket,
             position_desc=desc,
             analyst_profiles=profiles,
+            guru_context=guru_context,
         )
 
         raw_text = self._analyzer.run_custom_prompt(
@@ -213,6 +216,7 @@ class DebateService:
         position_bucket: PositionBucket,
         position_desc: str,
         analyst_profiles: List[AnalystProfile],
+        guru_context: Optional[GuruHoldingsContext] = None,
     ) -> str:
         """
         构造用于多分析师辩论的 Prompt。
@@ -257,6 +261,42 @@ class DebateService:
             lines.append("### 参考操作点位（来自主分析，供讨论时参考，不必盲从）")
             for k, v in sniper_points.items():
                 lines.append(f"- {k}: {v}")
+
+        # 大佬持仓与变动信息（如果提供）
+        if guru_context and guru_context.portfolios:
+            lines.append("")
+            lines.append("## 大佬持仓与最新变动（供参考，不代表必须跟随）")
+
+            any_hit = False
+            for snap in guru_context.portfolios:
+                if not snap.positions:
+                    continue
+                pos = (
+                    snap.positions.get(stock_code)
+                    or snap.positions.get(stock_code.upper())
+                    or snap.positions.get(stock_code.lower())
+                )
+                if not pos:
+                    continue
+                any_hit = True
+                weight = f"{pos.weight_pct:.1f}%" if pos.weight_pct is not None else "N/A"
+                action = pos.latest_action or "无披露"
+                change = ""
+                if pos.change_pct is not None:
+                    sign = "+" if pos.change_pct >= 0 else ""
+                    change = f"{sign}{pos.change_pct:.2f}pct"
+                thesis = pos.thesis or ""
+                as_of = f"（报告期：{snap.as_of}）" if snap.as_of else ""
+                lines.append(
+                    f"- **{snap.guru_name}**{as_of}："
+                    f"在该标的上的仓位约为 {weight}，最近动作为 **{action}**"
+                    + (f"，最近一个报告期仓位变化约 {change}" if change else "")
+                )
+                if thesis:
+                    lines.append(f"  - 逻辑摘要：{thesis}")
+
+            if not any_hit:
+                lines.append("当前未提供针对该标的的具体大佬持仓数据。")
 
         # 分析师人设
         lines.append("")

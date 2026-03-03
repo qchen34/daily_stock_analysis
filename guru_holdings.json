@@ -1,0 +1,45 @@
+{
+  "portfolios": [
+    {
+      "guru_name": "美股价值型基金经理A",
+      "style_tagline": "偏好高 ROE、稳定现金流的价值股，控制回撤。",
+      "as_of": "2026-02-28",
+      "notes": "示例数据：基于公开持仓报告虚构，用于 Prompt 结构演示。",
+      "positions": [
+        {
+          "code": "PDD",
+          "name": "PDD Holdings",
+          "weight_pct": 8.0,
+          "latest_action": "加仓",
+          "change_pct": 3.5,
+          "thesis": "看好海外扩张与盈利修复，适度提升电商板块权重。"
+        },
+        {
+          "code": "NVDA",
+          "name": "NVIDIA",
+          "weight_pct": 12.0,
+          "latest_action": "不变",
+          "change_pct": 0.0,
+          "thesis": "AI 周期核心资产，维持大比例持有。"
+        }
+      ]
+    },
+    {
+      "guru_name": "中概互联网专注基金B",
+      "style_tagline": "聚焦中概互联网与平台经济，容忍更大波动换取成长。",
+      "as_of": "2026-02-20",
+      "notes": "示例数据：用于展示多位大佬视角。",
+      "positions": [
+        {
+          "code": "PDD",
+          "name": "拼多多",
+          "weight_pct": 15.0,
+          "latest_action": "加仓",
+          "change_pct": 5.0,
+          "thesis": "认为公司在下沉市场和海外业务仍有高确定性增长。"
+        }
+      ]
+    }
+  ]
+}
+

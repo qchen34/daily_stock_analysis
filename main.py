@@ -49,6 +49,9 @@ from src.core.market_review import run_market_review
 
 from src.config import get_config, Config
 from src.logging_config import setup_logging
+from src.services.portfolio_analysis_service import PortfolioAnalysisService
+from src.services.portfolio_decision_service import PortfolioDecisionService
+from src.services.portfolio_debate_service import PortfolioDebateService
 
 
 logger = logging.getLogger(__name__)
@@ -204,7 +207,29 @@ def parse_arguments() -> argparse.Namespace:
         help='强制回测（即使已有回测结果也重新计算）'
     )
 
+    parser.add_argument(
+        '--mode',
+        type=str,
+        choices=['full', 'portfolio', 'stock', 'debate', 'final_decision'],
+        default='full',
+        help='运行模式：full=完整流程；portfolio=仅第一轮组合分析；stock=仅第二轮个股+大盘分析；debate=仅第三轮综合决策；final_decision=仅第四轮最终执行指南'
+    )
+
     return parser.parse_args()
+
+
+def _create_reports_run_dir() -> Tuple[Path, str]:
+    """
+    为当前运行创建/获取 reports 子目录，并设置 REPORTS_RUN_DIR。
+    返回 (reports_dir, run_ts)。
+    """
+    reports_root = Path(__file__).parent / "reports"
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = reports_root / run_ts
+    run_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["REPORTS_RUN_DIR"] = str(run_dir)
+    logger.info(f"本次运行的报告目录: {run_dir}")
+    return run_dir, run_ts
 
 
 def run_full_analysis(
@@ -214,10 +239,13 @@ def run_full_analysis(
 ):
     """
     执行完整的分析流程（个股 + 大盘复盘）
-
-    这是定时任务调用的主函数
+    
+    这是定时任务调用的主函数（完整 second-round 流程）
     """
     try:
+        # 为本次运行创建 reports 子目录，便于归档与后续调用
+        run_dir, run_ts = _create_reports_run_dir()
+
         # 命令行参数 --single-notify 覆盖配置（#55）
         if getattr(args, 'single_notify', False):
             config.single_stock_notify = True
@@ -282,11 +310,16 @@ def run_full_analysis(
                 parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
             if parts:
                 combined_content = "\n\n---\n\n".join(parts)
-                if pipeline.notifier.is_available():
-                    if pipeline.notifier.send(combined_content, email_send_to_all=True):
-                        logger.info("已合并推送（个股+大盘复盘）")
-                    else:
-                        logger.warning("合并推送失败")
+
+                # 当未开启组合四轮模式时，沿用原有合并推送逻辑
+                if not getattr(config, "enable_portfolio_rounds", False):
+                    if pipeline.notifier.is_available():
+                        if pipeline.notifier.send(combined_content, email_send_to_all=True):
+                            logger.info("已合并推送（个股+大盘复盘）")
+                        else:
+                            logger.warning("合并推送失败")
+                else:
+                    logger.info("已启用组合四轮模式：跳过第二轮合并推送，由第四轮终稿统一推送。")
 
         # 输出摘要
         if results:
@@ -340,7 +373,7 @@ def run_full_analysis(
         try:
             if getattr(config, 'backtest_enabled', True):
                 from src.services.backtest_service import BacktestService
-
+        
                 logger.info("开始自动回测...")
                 service = BacktestService()
                 stats = service.run_backtest(
@@ -355,6 +388,8 @@ def run_full_analysis(
                 )
         except Exception as e:
             logger.warning(f"自动回测失败（已忽略）: {e}")
+
+        # 组合四轮分析集成已改为通过 --mode 显式控制，这里不再自动执行。
 
     except Exception as e:
         logger.exception(f"分析流程执行失败: {e}")
@@ -451,6 +486,185 @@ def main() -> int:
     if args.stocks:
         stock_codes = [code.strip() for code in args.stocks.split(',') if code.strip()]
         logger.info(f"使用命令行指定的股票列表: {stock_codes}")
+
+    mode = getattr(args, "mode", "full")
+
+    # === 模式：仅第一轮组合分析 ===
+    if mode == "portfolio":
+        try:
+            reports_dir, _ = _create_reports_run_dir()
+
+            # 复用 Pipeline 加载 user_portfolio / guru_context 与 analyzer、notifier
+            pipeline = StockAnalysisPipeline(
+                config=config,
+                max_workers=args.workers,
+                query_id=uuid.uuid4().hex,
+                query_source="cli-portfolio",
+                save_context_snapshot=False,
+            )
+
+            if pipeline.user_portfolio is None:
+                logger.error("未加载 user_portfolio（缺少 user_portfolio.json 或解析失败），无法执行第一轮组合分析。")
+                return 1
+
+            service = PortfolioAnalysisService(analyzer=pipeline.analyzer)
+            round1 = service.analyze_portfolio(
+                portfolio=pipeline.user_portfolio,
+                guru_context=pipeline.guru_context,
+            )
+            if not round1:
+                logger.error("第一轮组合分析服务未返回结果，请检查 LLM 配置。")
+                return 1
+
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = reports_dir / f"portfolio_round1_{ts}.md"
+            out_path.write_text(round1.raw_text, encoding="utf-8")
+            logger.info("第一轮组合分析已保存到: %s", out_path)
+
+            if not args.no_notify and pipeline.notifier.is_available():
+                if pipeline.notifier.send_to_telegram(round1.raw_text):
+                    logger.info("第一轮组合分析报告已发送到 Telegram。")
+                else:
+                    logger.warning("第一轮组合分析报告发送到 Telegram 失败。")
+
+            return 0
+        except Exception as e:
+            logger.exception(f"组合第一轮分析执行失败: {e}")
+            return 1
+
+    # === 模式：仅第三轮综合决策 ===
+    if mode == "debate":
+        try:
+            reports_root = Path(__file__).parent / "reports"
+            # 选择最新的时间戳子目录或根目录
+            if reports_root.exists():
+                subdirs = [p for p in reports_root.iterdir() if p.is_dir()]
+                if subdirs:
+                    reports_dir = max(subdirs, key=lambda p: p.stat().st_mtime)
+                else:
+                    reports_dir = reports_root
+            else:
+                logger.error("reports 目录不存在，无法查找历史第一/二轮报告。")
+                return 1
+
+            # 第一轮输入
+            round1_files = list(reports_dir.glob("portfolio_round1_*.md"))
+            if not round1_files:
+                logger.error("在 %s 下未找到 portfolio_round1_*.md，请先运行 --mode portfolio。", reports_dir)
+                return 1
+            round1_path = max(round1_files, key=lambda p: p.stat().st_mtime)
+
+            # 第二轮输入：优先 round2_combined_*.md，其次 combined_report_*.md / report_*.md
+            candidates = (
+                list(reports_dir.glob("round2_combined_*.md"))
+                or list(reports_dir.glob("combined_report_*.md"))
+                or list(reports_dir.glob("report_*.md"))
+            )
+            if not candidates:
+                logger.error("在 %s 下未找到 round2_combined_*.md / combined_report_*.md / report_*.md。", reports_dir)
+                return 1
+            round2_path = max(candidates, key=lambda p: p.stat().st_mtime)
+
+            round1_text = round1_path.read_text(encoding="utf-8")
+            round2_text = round2_path.read_text(encoding="utf-8")
+
+            service = PortfolioDecisionService()
+            result = service.synthesize_decision(
+                portfolio_round1_text=round1_text,
+                round2_report_text=round2_text,
+            )
+            if not result:
+                logger.error("第三轮综合决策服务未返回结果，请检查 LLM 配置。")
+                return 1
+
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = reports_dir / f"round3_decision_{ts}.md"
+            out_path.write_text(result.raw_text, encoding="utf-8")
+            logger.info("第三轮综合决策报告已保存到: %s", out_path)
+
+            notifier = NotificationService()
+            if not args.no_notify and notifier.is_available():
+                if notifier.send_to_telegram(result.raw_text):
+                    logger.info("第三轮综合决策报告已发送到 Telegram。")
+                else:
+                    logger.warning("第三轮综合决策报告发送到 Telegram 失败。")
+
+            return 0
+        except Exception as e:
+            logger.exception(f"组合第三轮决策执行失败: {e}")
+            return 1
+
+    # === 模式：仅第四轮最终执行指南 ===
+    if mode == "final_decision":
+        try:
+            reports_root = Path(__file__).parent / "reports"
+            if reports_root.exists():
+                subdirs = [p for p in reports_root.iterdir() if p.is_dir()]
+                if subdirs:
+                    reports_dir = max(subdirs, key=lambda p: p.stat().st_mtime)
+                else:
+                    reports_dir = reports_root
+            else:
+                logger.error("reports 目录不存在，无法查找历史多轮报告。")
+                return 1
+
+            # 第一轮
+            round1_files = list(reports_dir.glob("portfolio_round1_*.md"))
+            if not round1_files:
+                logger.error("在 %s 下未找到 portfolio_round1_*.md，请先运行 --mode portfolio。", reports_dir)
+                return 1
+            round1_path = max(round1_files, key=lambda p: p.stat().st_mtime)
+
+            # 第二轮
+            round2_candidates = (
+                list(reports_dir.glob("round2_combined_*.md"))
+                or list(reports_dir.glob("combined_report_*.md"))
+                or list(reports_dir.glob("report_*.md"))
+            )
+            if not round2_candidates:
+                logger.error("在 %s 下未找到 round2_combined_*.md / combined_report_*.md / report_*.md。", reports_dir)
+                return 1
+            round2_path = max(round2_candidates, key=lambda p: p.stat().st_mtime)
+
+            # 第三轮
+            round3_files = list(reports_dir.glob("round3_decision_*.md"))
+            if not round3_files:
+                logger.error("在 %s 下未找到 round3_decision_*.md，请先运行 --mode debate。", reports_dir)
+                return 1
+            round3_path = max(round3_files, key=lambda p: p.stat().st_mtime)
+
+            round1_text = round1_path.read_text(encoding="utf-8")
+            round2_text = round2_path.read_text(encoding="utf-8")
+            round3_text = round3_path.read_text(encoding="utf-8")
+
+            service = PortfolioDebateService()
+            result = service.debate_decision(
+                round1_text=round1_text,
+                round2_text=round2_text,
+                round3_text=round3_text,
+            )
+            if not result:
+                logger.error("第四轮最终执行指南服务未返回结果，请检查 LLM 配置。")
+                return 1
+
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = reports_dir / f"round4_final_{ts}.md"
+            out_path.write_text(result.raw_text, encoding="utf-8")
+            logger.info("第四轮最终执行报告已保存到: %s", out_path)
+
+            notifier = NotificationService()
+            if not args.no_notify and notifier.is_available():
+                if notifier.send_to_telegram(result.raw_text):
+                    logger.info("第四轮最终执行报告已发送到 Telegram。")
+                else:
+                    logger.warning("第四轮最终执行报告发送到 Telegram 失败。")
+
+            return 0
+        except Exception as e:
+            logger.exception(f"组合第四轮终稿执行失败: {e}")
+            return 1
 
     # === 处理 --webui / --webui-only 参数，映射到 --serve / --serve-only ===
     if args.webui:

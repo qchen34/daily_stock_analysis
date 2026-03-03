@@ -11,6 +11,8 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
+import os
+import json
 import logging
 import time
 import uuid
@@ -28,8 +30,11 @@ from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
+from src.services.debate_service import DebateService
 from bot.models import BotMessage
 
+from src.core.position_profile import HoldingPosition, PortfolioSnapshot, get_position_pct_for_code
+from src.core.guru_profile import GuruHoldingsContext, GuruPortfolioSnapshot, GuruPosition
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,10 @@ class StockAnalysisPipeline:
         self.save_context_snapshot = (
             self.config.save_context_snapshot if save_context_snapshot is None else save_context_snapshot
         )
+        self.user_portfolio: Optional[PortfolioSnapshot] = None
+        self.guru_context: Optional[GuruHoldingsContext] = None
+        self._load_user_portfolio()
+        self._load_guru_holdings()
         
         # 初始化各模块
         self.db = get_db()
@@ -570,6 +579,28 @@ class StockAnalysisPipeline:
                             # 精简报告：使用单股报告格式（默认）
                             report_content = self.notifier.generate_single_stock_report(result)
                             logger.info(f"[{code}] 使用精简报告格式")
+
+                        # 可选：附加多风格分析师辩论模块
+                        if getattr(self.config, "enable_debate_module", False):
+                            try:
+                                # 1）从用户组合推导当前标的仓位
+                                position_pct = get_position_pct_for_code(self.user_portfolio, code)
+
+                                # 2）创建辩论服务，并传入两类结构化输入
+                                debate_service = DebateService(analyzer=self.analyzer)
+                                debate = debate_service.run_debate(
+                                    base_result=result,
+                                    position_pct=position_pct,
+                                    guru_context=self.guru_context,
+                                )
+                                if debate:
+                                    debate_md = debate.to_markdown()
+                                    report_content = report_content + "\n\n" + debate_md
+                                    logger.info(f"[{code}] 已附加多风格分析师辩论模块（仓位=%.1f%%）", position_pct)
+                                else:
+                                    logger.warning(f"[{code}] 辩论模块未返回结果，跳过附加")
+                            except Exception as debate_exc:
+                                logger.error(f"[{code}] 附加辩论模块失败: {debate_exc}")
                         
                         if self.notifier.send(report_content, email_stock_codes=[code]):
                             logger.info(f"[{code}] 单股推送成功")
@@ -805,3 +836,75 @@ class StockAnalysisPipeline:
                 
         except Exception as e:
             logger.error(f"发送通知失败: {e}")
+
+
+    def _load_user_portfolio(self) -> None:
+        try:
+            path = os.path.join(os.getcwd(), "user_portfolio.json")
+            if not os.path.exists(path):
+                logger.info("未找到 user_portfolio.json，辩论模块将使用 0%% 仓位。")
+                return
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            positions = {}
+            for p in raw.get("positions", []):
+                code = p.get("code")
+                if not code:
+                    continue
+                positions[code] = HoldingPosition(
+                    code=code,
+                    name=p.get("name"),
+                    position_pct=p.get("position_pct", 0.0),
+                    cost_price=p.get("cost_price"),
+                    notes=p.get("notes"),
+                    shares=p.get("shares"),
+                )
+            self.user_portfolio = PortfolioSnapshot(
+                positions=positions,
+                total_equity=raw.get("total_equity"),
+                as_of=raw.get("as_of"),
+                account_name=raw.get("account_name"),
+            )
+            logger.info("已加载用户组合快照（%d 个标的）用于辩论模块。", len(positions))
+        except Exception as e:
+            logger.error("加载 user_portfolio.json 失败，将使用 0%% 仓位: %s", e)
+            self.user_portfolio = None
+
+    def _load_guru_holdings(self) -> None:
+        try:
+            path = os.path.join(os.getcwd(), "guru_holdings.json")
+            if not os.path.exists(path):
+                logger.info("未找到 guru_holdings.json，将跳过大佬持仓上下文。")
+                return
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            portfolios = []
+            for snap in raw.get("portfolios", []):
+                pos_map = {}
+                for p in snap.get("positions", []):
+                    code = p.get("code")
+                    if not code:
+                        continue
+                    pos_map[code] = GuruPosition(
+                        code=code,
+                        name=p.get("name"),
+                        weight_pct=p.get("weight_pct", 0.0),
+                        latest_action=p.get("latest_action"),
+                        change_pct=p.get("change_pct"),
+                        thesis=p.get("thesis"),
+                    )
+                portfolios.append(
+                    GuruPortfolioSnapshot(
+                        guru_name=snap.get("guru_name", "未知大佬"),
+                        style_tagline=snap.get("style_tagline", ""),
+                        positions=pos_map,
+                        as_of=snap.get("as_of"),
+                        notes=snap.get("notes"),
+                    )
+                )
+            if portfolios:
+                self.guru_context = GuruHoldingsContext(portfolios=portfolios)
+                logger.info("已加载 %d 位大佬持仓用于辩论模块。", len(portfolios))
+        except Exception as e:
+            logger.error("加载 guru_holdings.json 失败，将忽略大佬持仓上下文: %s", e)
+            self.guru_context = None

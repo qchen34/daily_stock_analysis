@@ -1,0 +1,31 @@
+{
+  "as_of": "2026-03-03",
+  "items": [
+    {
+      "code": "0700.HK",
+      "name": "Tencent",
+      "notes": "Duan Yongping logic (Cashflow/Moat)"
+    },
+    {
+      "code": "PDD",
+      "name": "Pinduoduo",
+      "notes": "Duan Yongping logic (Efficiency/Growth)"
+    },
+    {
+      "code": "BABA",
+      "name": "Alibaba",
+      "notes": "Value play (Munger logic)"
+    },
+    {
+      "code": "FUTU",
+      "name": "Futu Holdings",
+      "notes": "High Beta growth"
+    },
+    {
+      "code": "TSLA",
+      "name": "Tesla",
+      "notes": "Wood logic (AI/Auto)"
+    }
+  ]
+}
+

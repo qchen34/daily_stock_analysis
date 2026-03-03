@@ -15,35 +15,50 @@
 - **Telegram 与代理调试（流程层面）**  
   - 明确了 `.env` 中 `USE_PROXY/PROXY_HOST/PROXY_PORT` 与系统/Clash 代理的关系，并通过临时脚本验证 Telegram `chat_id` 和代理是否生效（这些脚本本身不再修改）。
 
-- **多分析师辩论模块 - 第一阶段落地**  
-  - 在 `src/analyzer.py` 中为 `GeminiAnalyzer` 增加了通用调用方法 `run_custom_prompt()`，可以在不走内置 SYSTEM_PROMPT 的前提下，复用现有的重试与降级逻辑执行自定义 Prompt（后续多角色辩论等扩展能力统一走这一入口）。  
-  - 新建 `src/services/debate_service.py`：实现 `DebateService` / `DebateResult` / `DebateAnalystView`，支持基于已有 `AnalysisResult` + 当前标的仓位百分比构造专用 Prompt，调用 LLM 完成多分析师辩论，并输出结构化结果与 `to_markdown()`。  
-  - 新增 `debate_test_script.py`：提供一个独立的可行性测试脚本，从数据库中读取最近一次分析历史记录，还原 `AnalysisResult`，调用 `DebateService.run_debate()`，并把 `## 多风格分析师辩论` 章节的 Markdown 打印到终端及保存到 `reports/debate_*.md`，方便离线调试与 Prompt 迭代。
+- **多风格分析师辩论服务层（基础版 + 上下文扩展）**  
+  - 新增 `src/services/debate_service.py`：  
+    - 定义 `DebateAnalystView` / `DebateResult`，封装多位虚拟分析师的观点、互评与综合结论，并通过 `to_markdown()` 生成可直接拼接到报告的 Markdown 段落。  
+    - `DebateService.run_debate(base_result, position_pct, guru_context)`：  
+      - 基于已有 `AnalysisResult`、个人仓位百分比和大佬持仓上下文构造多角色辩论 Prompt；  
+      - 调用 `GeminiAnalyzer.run_custom_prompt`；  
+      - 解析模型返回的 JSON，填充 `DebateResult`。  
+    - Prompt 中已经显式注入：  
+      - 当前标的与用户仓位（轻仓/中仓/重仓 + 具体百分比）；  
+      - （可选）多个大佬在该标的上的权重、加减仓动作及逻辑摘要。
+
+- **主流程集成 JSON 驱动的个人持仓 + 大佬持仓**  
+  - 在 `src/core/position_profile.py` / `src/core/guru_profile.py` 基础上，通过 `user_portfolio.json` 和 `guru_holdings.json` 定义结构化输入：  
+    - `user_portfolio.json`：描述个人账户名、总资产、每只股票的 `position_pct`、成本价与备注。  
+    - `guru_holdings.json`：描述多位大佬组合快照（`GuruPortfolioSnapshot`），包括每个标的的权重、最近动作、仓位变化与投资逻辑。  
+  - 在 `StockAnalysisPipeline` 中：  
+    - 在初始化时加载上述 JSON，构造 `PortfolioSnapshot` 和 `GuruHoldingsContext` 并挂在 `self.user_portfolio` / `self.guru_context`。  
+    - 在单股即时推送路径中：  
+      - 用 `get_position_pct_for_code(self.user_portfolio, code)` 推导当前标的仓位；  
+      - 调用 `DebateService.run_debate(result, position_pct=..., guru_context=self.guru_context)`，并将 `debate.to_markdown()` 追加到单股报告后部。  
+    - 日志中可见加载结果与实际用于辩论的仓位值，例如：  
+      `已加载用户组合快照（X 个标的）用于辩论模块。`  
+      `已加载 Y 位大佬持仓用于辩论模块。`  
+      `[PDD] 已附加多风格分析师辩论模块（仓位=20.0%）`。
 
 ## 后续实现计划（按推荐顺序）
 
-1. **多分析师辩论服务层（集成与迭代阶段）**  
-   - 基于当前已实现的 `DebateService`：  
-     - 补充与 `PortfolioSnapshot` 的集成入口（例如从 WebUI 或配置中注入当前组合快照，再在调用 `DebateService` 时自动获取 `position_pct`）。  
-     - 根据实际调用效果继续打磨辩论 Prompt：包括角色说话风格、互评深度、综合结论的结构等。  
-     - 如需要，对 `DebateResult` 的字段做小幅调整，使其与个股 Markdown 报告的拼接更自然。
+1. **第二轮单股分析的缓存与轻量微调（降低 token 成本）**  
+   - 基于 `AnalysisHistory` 为第二轮单股分析增加缓存层：  
+     - 在 `AnalysisRepository` 中增加 `get_latest_for_code` 方法，用于按股票代码获取最近一次分析记录。  
+     - 在 `StockAnalysisPipeline.analyze_stock` 中优先尝试从缓存还原 `AnalysisResult`，满足“时间/价格/新闻变动阈值”时才重跑完整大模型。  
+   - 设计轻量 Prompt，用于在复用历史结果的基础上做“行情/新闻微调建议”，而不是每次都跑完整第二轮分析。
 
-2. **在报告生成流程中挂接辩论模块（只针对个股报告）**  
-   - 在个股分析结果生成 Markdown 的位置（例如 `NotificationService` 中与个股报告相关的 formatter，或 `core/pipeline` 汇总代码）引入一个可选步骤：  
-     - 当配置 `ENABLE_DEBATE_MODULE=true` 时：  
-       - 根据当前标的代码从 `PortfolioSnapshot` 拿到仓位信息。  
-       - 调用 `DebateService` 生成辩论 Markdown，并在个股报告末尾追加一个章节：`## 多风格分析师辩论`。  
-     - 当开关关闭时，保持现有输出不变。
+2. **在 pipeline 中真正利用动态持仓信息**  
+   - 使用 `HoldingPosition.shares` + 实时行情，计算 `runtime_price` / `runtime_market_value` / `runtime_position_pct` 并填充到 `PortfolioSnapshot` 中。  
+   - 在第一轮、第三轮、第四轮的 Prompt 中，优先使用 `runtime_position_pct` 展示真实仓位结构，而不是依赖静态 `position_pct`。  
+   - 在日志与报告中增加一处“组合动态仓位概览”，便于肉眼校验持仓权重是否正确。
 
-3. **为辩论模块添加单元测试**  
-   - 新建 `tests/test_debate_service.py`：  
-     - 用假 `AnalysisResult` 和假 `PortfolioSnapshot` 构造场景，mock 掉真实 LLM 调用。  
-     - 验证：Prompt 中包含分析师人设与仓位描述；解析逻辑能正确得到 `DebateResult` 并输出预期的 Markdown 结构。
+3. **进一步收紧四轮 Prompt 的结构化输出**  
+   - 为第一/三/四轮设计清晰的 JSON Schema（例如 `user_portfolio_summary`、`guru_insights_summary`、`target_total_position_pct` 等），并在服务层解析为 dataclass。  
+   - 在第四轮（终稿）中优先使用这些结构化字段，而不是完全依赖自由文本，从而便于后续与回测/风控模块联动。
 
-4. **逐步优化 Prompt 与仓位使用策略**  
-   - 根据实际调用效果调优：  
-     - 分析师角色数量与风格描述。  
-     - 仓位分档的阈值与文字描述。  
-     - 辩论结果中对空仓者/持仓者的差异化建议（例如针对轻仓/重仓给出不同目标仓位与操作节奏）。  
-   - 如有需要，再考虑将主分析与辩论合并为一次 LLM 调用，以降低总 token 成本。
-
+4. **汇总日报中可选集成多风格辩论与组合四轮结论**  
+   - 当前多风格辩论仅在单股即时推送路径和组合第四轮中使用，汇总日报（`_send_notifications` + `generate_dashboard_report`）暂未集成这些结论。  
+   - 后续可以考虑在日报末尾增加一个“附录：重点标的大佬+多风格辩论/组合结论摘要”小节：  
+     - 只对评分最高或关注度最高的 N 只股票附加精简版辩论与组合结论（例如每只 3–5 行）。  
+     - 通过配置项（例如 `DEBATE_APPEND_TO_DAILY_REPORT=true`、`PORTFOLIO_ROUNDS_APPEND_TO_DAILY=true`）控制是否启用，以平衡可读性与长度。

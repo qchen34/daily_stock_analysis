@@ -29,6 +29,8 @@ from typing import Any, Dict, Optional
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.services.debate_service import DebateService
+from src.core.position_profile import HoldingPosition, PortfolioSnapshot, get_position_pct_for_code
+from src.core.guru_profile import GuruHoldingsContext, GuruPortfolioSnapshot, GuruPosition
 from src.repositories.analysis_repo import AnalysisRepository
 from src.storage import DatabaseManager, AnalysisHistory
 
@@ -147,12 +149,87 @@ def main() -> int:
 
     base_result = _build_analysis_result_from_history(row)
 
-    # 这里先用一个固定仓位做测试，你可以改成任意数值，或之后接入 PortfolioSnapshot
-    position_pct = float(os.getenv("TEST_POSITION_PCT", "0"))
-    logger.info("测试使用的当前仓位: %.1f%%", position_pct)
+    # 从 user_portfolio.json 读取个人组合，推导当前标的仓位
+    portfolio: Optional[PortfolioSnapshot] = None
+    try:
+        portfolio_path = os.path.join(os.getcwd(), "user_portfolio.json")
+        if os.path.exists(portfolio_path):
+            logger.info("从 %s 读取用户组合信息用于辩论...", portfolio_path)
+            with open(portfolio_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            positions_dict: Dict[str, HoldingPosition] = {}
+            for p in raw.get("positions", []):
+                code = p.get("code")
+                if not code:
+                    continue
+                positions_dict[code] = HoldingPosition(
+                    code=code,
+                    name=p.get("name"),
+                    position_pct=p.get("position_pct", 0.0),
+                    cost_price=p.get("cost_price"),
+                    notes=p.get("notes"),
+                )
+            portfolio = PortfolioSnapshot(
+                positions=positions_dict,
+                total_equity=raw.get("total_equity"),
+                as_of=raw.get("as_of"),
+                account_name=raw.get("account_name"),
+            )
+        else:
+            logger.warning("未找到 user_portfolio.json，将使用 0%% 仓位作为默认值。")
+    except Exception as e:
+        logger.error("读取 user_portfolio.json 失败，将使用 0%% 仓位: %s", e)
+        portfolio = None
+
+    position_pct = get_position_pct_for_code(portfolio, base_result.code)
+    logger.info("根据用户组合推导的当前仓位: %.1f%%", position_pct)
+
+    # 可选：从 guru_holdings.json 构造大佬持仓上下文
+    guru_context: Optional[GuruHoldingsContext] = None
+    try:
+        guru_path = os.path.join(os.getcwd(), "guru_holdings.json")
+        if os.path.exists(guru_path):
+            logger.info("从 %s 读取大佬持仓信息用于辩论...", guru_path)
+            with open(guru_path, "r", encoding="utf-8") as f:
+                raw_g = json.load(f)
+            portfolios: List[GuruPortfolioSnapshot] = []
+            for snap in raw_g.get("portfolios", []):
+                pos_map: Dict[str, GuruPosition] = {}
+                for p in snap.get("positions", []):
+                    code = p.get("code")
+                    if not code:
+                        continue
+                    pos_map[code] = GuruPosition(
+                        code=code,
+                        name=p.get("name"),
+                        weight_pct=p.get("weight_pct", 0.0),
+                        latest_action=p.get("latest_action"),
+                        change_pct=p.get("change_pct"),
+                        thesis=p.get("thesis"),
+                    )
+                portfolios.append(
+                    GuruPortfolioSnapshot(
+                        guru_name=snap.get("guru_name", "未知大佬"),
+                        style_tagline=snap.get("style_tagline", ""),
+                        positions=pos_map,
+                        as_of=snap.get("as_of"),
+                        notes=snap.get("notes"),
+                    )
+                )
+            if portfolios:
+                guru_context = GuruHoldingsContext(portfolios=portfolios)
+        else:
+            logger.warning("未找到 guru_holdings.json，将跳过大佬持仓上下文。")
+    except Exception as e:
+        logger.error("读取 guru_holdings.json 失败，将忽略大佬持仓上下文: %s", e)
+        guru_context = None
 
     debate_service = DebateService()
-    debate = debate_service.run_debate(base_result, position_pct=position_pct)
+    debate = debate_service.run_debate(
+        base_result,
+        position_pct=position_pct,
+        guru_context=guru_context,
+    )
 
     if not debate:
         logger.error("辩论模块返回为空，请检查 LLM 配置（Gemini/Anthropic/OpenAI）是否可用。")

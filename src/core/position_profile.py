@@ -18,19 +18,27 @@ from src.core.debate_profile import PositionBucket, bucket_position
 class HoldingPosition:
     """
     单个标的的持仓信息。
-
+    
     - code: 股票/标的代码，例如 '600519', 'AAPL'
     - name: 可选名称，便于展示
-    - position_pct: 相对总资产的仓位百分比（0-100）
+    - position_pct: 静态配置的仓位百分比（0-100），用于没有动态计算时的回退
     - cost_price: 成本价（可选，用于以后做盈亏分析）
     - notes: 备注，例如“长线持有”、“短线试仓”等
+    - shares: 持有数量（股数/份额），用于结合实时价格计算市值
+    - runtime_price: 运行时获取的最新价格（不写回配置）
+    - runtime_market_value: 运行时计算的市值（shares * runtime_price）
+    - runtime_position_pct: 运行时计算的仓位百分比（相对 total_equity）
     """
-
+    
     code: str
     name: Optional[str] = None
     position_pct: float = 0.0
     cost_price: Optional[float] = None
     notes: Optional[str] = None
+    shares: Optional[float] = None
+    runtime_price: Optional[float] = None
+    runtime_market_value: Optional[float] = None
+    runtime_position_pct: Optional[float] = None
 
 
 @dataclass
@@ -85,10 +93,16 @@ def get_position_pct_for_code(
     获取某只股票的仓位百分比，未持有则返回 0.0。
     """
     pos = get_position_for_code(portfolio, code)
-    if pos is None or pos.position_pct is None:
+    if pos is None:
         return 0.0
+
+    # 优先使用运行时动态计算的仓位（如果已经填充）
+    value = getattr(pos, "runtime_position_pct", None)
+    if value is None:
+        value = pos.position_pct
+
     try:
-        return float(pos.position_pct)
+        return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
 

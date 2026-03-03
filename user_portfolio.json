@@ -1,0 +1,57 @@
+{
+  "account_name": "美股主账户",
+  "as_of": "2026-03-03",
+  "total_equity": 0,
+  "cash_usd": 4400.0,
+  "positions": [
+    {
+      "code": "VTI",
+      "name": "Vanguard Total Stock Market ETF",
+      "position_pct": 0,
+      "shares": 10,
+      "cost_price": 310.86,
+      "notes": "10 股，宽基美股指数，核心底仓"
+    },
+    {
+      "code": "COST",
+      "name": "Costco Wholesale",
+      "position_pct": 0,
+      "shares": 3,
+      "cost_price": 930.84,
+      "notes": "3 股，价值型仓位（巴菲特/段永平逻辑）"
+    },
+    {
+      "code": "AAPL",
+      "name": "Apple",
+      "position_pct": 0,
+      "shares": 10,
+      "cost_price": 256.78,
+      "notes": "10 股，核心持仓（巴菲特/段永平逻辑）"
+    },
+    {
+      "code": "QQQM",
+      "name": "Invesco NASDAQ 100 ETF",
+      "position_pct": 0,
+      "shares": 15,
+      "cost_price": 229.58,
+      "notes": "15 股，纳指 100 指数（成长偏多）"
+    },
+    {
+      "code": "CRCL",
+      "name": "CRCL",
+      "position_pct": 0,
+      "shares": 10,
+      "cost_price": 85.96,
+      "notes": "10 股，成长型仓位（Wood 风格）"
+    },
+    {
+      "code": "NVDA",
+      "name": "NVIDIA",
+      "position_pct": 0,
+      "shares": 1,
+      "cost_price": 190.85,
+      "notes": "1 股，AI 龙头（Pelosi/Wood 关注）"
+    }
+  ]
+}
+
