@@ -4,26 +4,31 @@
     {
       "code": "0700.HK",
       "name": "Tencent",
+      "tags": ["DuanYongping", "Moat", "Cashflow"],
       "notes": "Duan Yongping logic (Cashflow/Moat)"
     },
     {
       "code": "PDD",
       "name": "Pinduoduo",
+      "tags": ["DuanYongping", "Efficiency", "Growth"],
       "notes": "Duan Yongping logic (Efficiency/Growth)"
     },
     {
       "code": "BABA",
       "name": "Alibaba",
+      "tags": ["Munger", "Value"],
       "notes": "Value play (Munger logic)"
     },
     {
       "code": "FUTU",
       "name": "Futu Holdings",
+      "tags": ["HighBeta", "Growth"],
       "notes": "High Beta growth"
     },
     {
       "code": "TSLA",
       "name": "Tesla",
+      "tags": ["Wood", "AI", "Auto"],
       "notes": "Wood logic (AI/Auto)"
     }
   ]

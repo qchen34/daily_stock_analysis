@@ -839,35 +839,22 @@ class StockAnalysisPipeline:
 
 
     def _load_user_portfolio(self) -> None:
+        """
+        从统一的 portfolio_loader 加载用户组合，用于辩论模块与组合分析。
+        """
         try:
-            path = os.path.join(os.getcwd(), "user_portfolio.json")
-            if not os.path.exists(path):
-                logger.info("未找到 user_portfolio.json，辩论模块将使用 0%% 仓位。")
+            from src.services.portfolio_loader import load_user_portfolio
+
+            portfolio = load_user_portfolio(self.config)
+            if not portfolio or not portfolio.positions:
+                logger.info("未加载到有效的 user_portfolio（缺少配置或解析失败），辩论模块将使用 0%% 仓位。")
+                self.user_portfolio = None
                 return
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            positions = {}
-            for p in raw.get("positions", []):
-                code = p.get("code")
-                if not code:
-                    continue
-                positions[code] = HoldingPosition(
-                    code=code,
-                    name=p.get("name"),
-                    position_pct=p.get("position_pct", 0.0),
-                    cost_price=p.get("cost_price"),
-                    notes=p.get("notes"),
-                    shares=p.get("shares"),
-                )
-            self.user_portfolio = PortfolioSnapshot(
-                positions=positions,
-                total_equity=raw.get("total_equity"),
-                as_of=raw.get("as_of"),
-                account_name=raw.get("account_name"),
-            )
-            logger.info("已加载用户组合快照（%d 个标的）用于辩论模块。", len(positions))
+
+            self.user_portfolio = portfolio
+            logger.info("已加载用户组合快照（%d 个标的）用于辩论模块。", len(portfolio.positions))
         except Exception as e:
-            logger.error("加载 user_portfolio.json 失败，将使用 0%% 仓位: %s", e)
+            logger.error("加载用户组合快照失败，将使用 0%% 仓位: %s", e)
             self.user_portfolio = None
 
     def _load_guru_holdings(self) -> None:

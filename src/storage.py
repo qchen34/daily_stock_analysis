@@ -363,6 +363,59 @@ class BacktestSummary(Base):
     )
 
 
+class PortfolioAccount(Base):
+    """
+    个人投资账户信息。
+
+    用于标识不同账户（如“美股主账户”、“A股长线账户”），
+    供组合第一轮/多轮分析与绩效统计使用。
+    """
+
+    __tablename__ = 'portfolio_accounts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True, index=True)
+    base_currency = Column(String(8), nullable=True)  # 账户基础货币，如 USD/CNY/HKD
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+
+class PortfolioAccountSnapshot(Base):
+    """
+    账户整体快照（绩效基础数据）。
+
+    一条记录代表某一时刻的账户整体状态：
+    - 总资产（total_equity）
+    - 现金（cash）
+    - 持仓市值（positions_value）
+
+    Round1 可以基于该表按时间序列计算收益率、回撤等绩效指标。
+    """
+
+    __tablename__ = 'portfolio_account_snapshots'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    account_id = Column(
+        Integer,
+        ForeignKey('portfolio_accounts.id'),
+        nullable=False,
+        index=True,
+    )
+
+    as_of = Column(DateTime, nullable=False, index=True)
+    total_equity = Column(Float, nullable=True)
+    cash = Column(Float, nullable=True)
+    positions_value = Column(Float, nullable=True)
+    leverage = Column(Float, nullable=True)  # 可选：杠杆倍数
+    notes = Column(Text, nullable=True)
+
+    __table_args__ = (
+        # 同一账户同一时间点只保留一条快照
+        UniqueConstraint('account_id', 'as_of', name='uix_account_as_of'),
+        Index('ix_account_asof', 'account_id', 'as_of'),
+    )
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -473,6 +526,125 @@ class DatabaseManager:
         except Exception:
             session.close()
             raise
+    
+    # === 组合账户相关操作 ===
+
+    def get_or_create_portfolio_account(
+        self,
+        name: str,
+        base_currency: Optional[str] = None,
+    ) -> PortfolioAccount:
+        """
+        获取或创建 PortfolioAccount 记录。
+
+        Args:
+            name: 账户名称（如 user_portfolio.json 中的 account_name）
+            base_currency: 基础货币（可选）
+        """
+        if not name:
+            raise ValueError("账户名称不能为空")
+
+        with self.get_session() as session:
+            account = session.execute(
+                select(PortfolioAccount).where(PortfolioAccount.name == name)
+            ).scalar_one_or_none()
+            if account:
+                # 如有需要，可更新 base_currency
+                if base_currency and not account.base_currency:
+                    account.base_currency = base_currency
+                    session.commit()
+                return account
+
+            account = PortfolioAccount(
+                name=name,
+                base_currency=base_currency,
+                created_at=datetime.now(),
+            )
+            session.add(account)
+            session.commit()
+            session.refresh(account)
+            return account
+
+    def save_portfolio_account_snapshot(
+        self,
+        account_name: str,
+        as_of: datetime,
+        total_equity: Optional[float] = None,
+        cash: Optional[float] = None,
+        positions_value: Optional[float] = None,
+        base_currency: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        """
+        保存账户整体快照（若已存在相同 account+as_of，则更新）。
+        """
+        account = self.get_or_create_portfolio_account(
+            name=account_name,
+            base_currency=base_currency,
+        )
+
+        with self.get_session() as session:
+            existing = session.execute(
+                select(PortfolioAccountSnapshot).where(
+                    and_(
+                        PortfolioAccountSnapshot.account_id == account.id,
+                        PortfolioAccountSnapshot.as_of == as_of,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing:
+                existing.total_equity = total_equity
+                existing.cash = cash
+                existing.positions_value = positions_value
+                existing.leverage = None
+                existing.notes = notes or existing.notes
+            else:
+                snapshot = PortfolioAccountSnapshot(
+                    account_id=account.id,
+                    as_of=as_of,
+                    total_equity=total_equity,
+                    cash=cash,
+                    positions_value=positions_value,
+                    notes=notes,
+                )
+                session.add(snapshot)
+            session.commit()
+
+    def get_account_snapshots(
+        self,
+        account_name: str,
+        days: int = 365,
+        limit: int = 365,
+    ) -> List[PortfolioAccountSnapshot]:
+        """
+        获取指定账户的历史快照（按时间升序）。
+        """
+        if not account_name:
+            return []
+
+        cutoff = datetime.now() - timedelta(days=days)
+
+        with self.get_session() as session:
+            account = session.execute(
+                select(PortfolioAccount).where(PortfolioAccount.name == account_name)
+            ).scalar_one_or_none()
+            if not account:
+                return []
+
+            results = session.execute(
+                select(PortfolioAccountSnapshot)
+                .where(
+                    and_(
+                        PortfolioAccountSnapshot.account_id == account.id,
+                        PortfolioAccountSnapshot.as_of >= cutoff,
+                    )
+                )
+                .order_by(PortfolioAccountSnapshot.as_of.asc())
+                .limit(limit)
+            ).scalars().all()
+
+            return list(results)
     
     def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
         """

@@ -518,10 +518,14 @@ def main() -> int:
                 logger.error("未加载 user_portfolio（缺少 user_portfolio.json 或解析失败），无法执行第一轮组合分析。")
                 return 1
 
+            from src.services.portfolio_loader import load_watchlist
+
             service = PortfolioAnalysisService(analyzer=pipeline.analyzer)
+            watchlist = load_watchlist(config)
             round1 = service.analyze_portfolio(
                 portfolio=pipeline.user_portfolio,
                 guru_context=pipeline.guru_context,
+                watchlist=watchlist,
             )
             if not round1:
                 logger.error("第一轮组合分析服务未返回结果，请检查 LLM 配置。")
@@ -529,11 +533,11 @@ def main() -> int:
 
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_path = reports_dir / f"portfolio_round1_{ts}.md"
-            out_path.write_text(round1.raw_text, encoding="utf-8")
+            out_path.write_text(round1.to_markdown(), encoding="utf-8")
             logger.info("第一轮组合分析已保存到: %s", out_path)
 
             if not args.no_notify and pipeline.notifier.is_available():
-                if pipeline.notifier.send_to_telegram(round1.raw_text):
+                if pipeline.notifier.send_to_telegram(round1.to_markdown()):
                     logger.info("第一轮组合分析报告已发送到 Telegram。")
                 else:
                     logger.warning("第一轮组合分析报告发送到 Telegram 失败。")
