@@ -42,7 +42,7 @@ import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
@@ -271,9 +271,19 @@ def run_full_analysis(
             save_context_snapshot=save_context_snapshot
         )
 
+        # 解析第二轮要分析的股票列表：
+        # 优先级：命令行 --stocks > USE_PORTFOLIO_STOCK_LIST=true 时从 user_portfolio.json 中提取 > .env 中的 STOCK_LIST（由 Config 管理）
+        run_stock_codes = stock_codes
+        if run_stock_codes is None and getattr(config, "use_portfolio_stock_list", False):
+            if pipeline.user_portfolio and pipeline.user_portfolio.positions:
+                run_stock_codes = list(pipeline.user_portfolio.positions.keys())
+                logger.info("使用 user_portfolio.json 中的股票列表作为第二轮分析输入: %s", ", ".join(run_stock_codes))
+            else:
+                logger.warning("配置了 USE_PORTFOLIO_STOCK_LIST=true，但未能从 user_portfolio.json 加载到有效持仓，将回退到 STOCK_LIST。")
+
         # 1. 运行个股分析
         results = pipeline.run(
-            stock_codes=stock_codes,
+            stock_codes=run_stock_codes,
             dry_run=args.dry_run,
             send_notification=not args.no_notify,
             merge_notification=merge_notification
@@ -481,9 +491,9 @@ def main() -> int:
     for warning in warnings:
         logger.warning(warning)
 
-    # 解析股票列表
-    stock_codes = None
-    if args.stocks:
+    # 解析股票列表（仅在 full / stock 模式中使用）
+    stock_codes: Optional[List[str]] = None
+    if getattr(args, "stocks", None):
         stock_codes = [code.strip() for code in args.stocks.split(',') if code.strip()]
         logger.info(f"使用命令行指定的股票列表: {stock_codes}")
 
@@ -665,6 +675,11 @@ def main() -> int:
         except Exception as e:
             logger.exception(f"组合第四轮终稿执行失败: {e}")
             return 1
+
+    # 其余情况：mode == "full" 或 mode == "stock"，走原有完整流程
+    # 对于 mode == "stock"，强制关闭个股报告中的辩论模块（只保留第二轮分析）
+    if mode == "stock":
+        config.enable_debate_module = False
 
     # === 处理 --webui / --webui-only 参数，映射到 --serve / --serve-only ===
     if args.webui:

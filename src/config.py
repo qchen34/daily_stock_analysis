@@ -162,6 +162,9 @@ class Config:
     # 是否启用组合四轮分析（1-4 轮集成）
     enable_portfolio_rounds: bool = False
 
+    # 是否在第二轮分析时优先使用 user_portfolio.json 中的股票代码列表
+    use_portfolio_stock_list: bool = False
+
     # 消息长度限制（字节）- 超长自动分批发送
     feishu_max_bytes: int = 20000  # 飞书限制约 20KB，默认 20000 字节
     wechat_max_bytes: int = 4000   # 企业微信限制 4096 字节，默认 4000 字节
@@ -435,6 +438,7 @@ class Config:
             merge_email_notification=os.getenv('MERGE_EMAIL_NOTIFICATION', 'false').lower() == 'true',
             enable_debate_module=os.getenv('ENABLE_DEBATE_MODULE', 'false').lower() == 'true',
             enable_portfolio_rounds=os.getenv('ENABLE_PORTFOLIO_ROUNDS', 'false').lower() == 'true',
+            use_portfolio_stock_list=os.getenv('USE_PORTFOLIO_STOCK_LIST', 'false').lower() == 'true',
             feishu_max_bytes=int(os.getenv('FEISHU_MAX_BYTES', '20000')),
             wechat_max_bytes=wechat_max_bytes,
             wechat_msg_type=wechat_msg_type_lower,

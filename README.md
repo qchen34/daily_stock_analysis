@@ -2,14 +2,15 @@
 
 # 📈 股票智能分析系统
 
-[![GitHub stars](https://img.shields.io/github/stars/ZhuLinsen/daily_stock_analysis?style=social)](https://github.com/ZhuLinsen/daily_stock_analysis/stargazers)
-[![CI](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/qchen34/daily_stock_analysis?style=social)](https://github.com/qchen34/daily_stock_analysis/stargazers)
+[![CI](https://github.com/qchen34/daily_stock_analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/qchen34/daily_stock_analysis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
-> 🤖 基于 AI 大模型的 A股/港股/美股自选股智能分析系统，每日自动分析并推送「决策仪表盘」到企业微信/飞书/Telegram/邮箱
+> 🤖 基于 AI 大模型的 个人A股/港股/美股投资理财顾问，每日定期发送个人持仓分析报告，个股分析，操作建议。
+因为个人在2025年的美股大牛市中因为恐慌情绪没有抓住机会，所以想要借助AI的理性和帮助优化个人的投资。
 
 [**功能特性**](#-功能特性) · [**快速开始**](#-快速开始) · [**推送效果**](#-推送效果) · [**完整指南**](docs/full-guide.md) · [**常见问题**](docs/FAQ.md) · [**更新日志**](docs/CHANGELOG.md)
 
@@ -17,13 +18,36 @@
 
 </div>
 
-## 💖 赞助商 (Sponsors)
-<div align="center">
-  <a href="https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis" target="_blank">
-    <img src="./sources/serpapi_banner_zh.png" alt="轻松抓取搜索引擎上的实时金融新闻数据 - SerpApi" height="160">
-  </a>
-</div>
-<br>
+## 本仓库说明（基于上游项目的二次开发）
+
+本仓库是在上游开源项目 [ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) 的基础上，结合个人投资习惯做的**定制化二次开发**，重点增强了：
+
+- **个人组合 & 大佬持仓驱动的分析链路**  
+  - 新增 `user_portfolio.json`（个人持仓）和 `guru_holdings.json`（大师/机构持仓），并在主流程中自动加载为 `PortfolioSnapshot` 与 `GuruHoldingsContext`。  
+  - 后续分析（尤其是多轮组合决策与辩论）可以感知「自己持仓」与「大佬怎么持仓」两个维度。
+
+- **模仿TradingAgents思路创建的多空分析师博弈**
+  - (https://github.com/TauricResearch/TradingAgents)
+  - 基础面分析：
+  - 情绪面分析：
+  - 新闻面分析：
+  - 技术面分析：
+
+- **四轮组合决策架构**（详见 `src/services/portfolio_*.py` 与 `agent_task_notes.md`）  
+  1. 第一轮：**组合视角分析**（Portfolio）——聚焦整体仓位结构、风格暴露、集中度与风险点。  
+  2. 第二轮：**个股 + 大盘深度分析**（沿用上游项目的原始逻辑）。  
+  3. 第三轮：**基于前两轮输出的风险/仓位管理综合决策**。  
+  4. 第四轮：**多风格“投资委员会”对第三轮草稿进行审阅与定稿，输出最终执行指南**。  
+  各轮输出会按时间戳写入 `reports/` 子目录，并在尾部附带统一的「AI 可能出错，不构成投资建议」免责声明。
+
+- **多模式 CLI 入口（单一 main.py）**  
+  在保持原有 `python main.py` 行为的基础上，新增更清晰的模式划分：  
+  - `--mode stock`：只运行第二轮（原项目的个股 + 大盘分析），不附加个股辩论模块。  
+  - `--mode portfolio`：只运行第一轮组合分析并推送到 Telegram。  
+  - `--mode debate`：只运行第三轮（从 `reports` 中读取最近的第一/二轮报告）。  
+  - `--mode final_decision`：只运行第四轮，基于前三轮输出生成最终执行指南并推送到 Telegram。  
+  
+除上述改动以外，其余配置方式、推送渠道和大部分分析逻辑与上游项目保持一致，方便后续继续跟进 upstream 的更新。
 
 
 ## ✨ 功能特性
@@ -162,6 +186,29 @@ python main.py
 ```
 
 > Docker 部署、定时任务配置请参考 [完整指南](docs/full-guide.md)
+
+### 本地运行：多模式入口（本仓库扩展）
+
+在本地环境中，本仓库在原有 `main.py` 的基础上，增加了一个 `--mode` 参数，用于按需只运行某一轮或完整流程：
+
+```bash
+# 仅第二轮：个股 + 大盘分析（原项目默认逻辑，使用 .env 中的 STOCK_LIST 或命令行 --stocks）
+python main.py --mode stock
+
+# 仅第一轮：组合视角分析（基于 user_portfolio.json + 可选 guru_holdings.json）
+python main.py --mode portfolio
+
+# 仅第三轮：基于最近一次第一/二轮报告的风险与仓位管理综合决策
+python main.py --mode debate
+
+# 仅第四轮：多风格“投资委员会”对前三轮草稿进行审阅与定稿，生成最终执行指南并推送到 Telegram
+python main.py --mode final_decision
+
+# 原始完整流程（等价于不传 --mode）
+python main.py --mode full
+```
+
+> 各模式的输入/输出约定、当前实现进度和后续优化计划，可参考 `daily_stock_analysis/agent_task_notes.md` 中的说明。
 
 ## 📱 推送效果
 
