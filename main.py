@@ -46,6 +46,7 @@ from typing import List, Optional, Tuple
 
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
+from src.notification import NotificationService
 
 from src.config import get_config, Config
 from src.logging_config import setup_logging
@@ -546,32 +547,25 @@ def main() -> int:
     if mode == "debate":
         try:
             reports_root = Path(__file__).parent / "reports"
-            # 选择最新的时间戳子目录或根目录
-            if reports_root.exists():
-                subdirs = [p for p in reports_root.iterdir() if p.is_dir()]
-                if subdirs:
-                    reports_dir = max(subdirs, key=lambda p: p.stat().st_mtime)
-                else:
-                    reports_dir = reports_root
-            else:
+            if not reports_root.exists():
                 logger.error("reports 目录不存在，无法查找历史第一/二轮报告。")
                 return 1
 
             # 第一轮输入
-            round1_files = list(reports_dir.glob("portfolio_round1_*.md"))
+            round1_files = list(reports_root.glob("**/portfolio_round1_*.md"))
             if not round1_files:
-                logger.error("在 %s 下未找到 portfolio_round1_*.md，请先运行 --mode portfolio。", reports_dir)
+                logger.error("在 %s 下未找到任何 portfolio_round1_*.md，请先运行 --mode portfolio。", reports_root)
                 return 1
             round1_path = max(round1_files, key=lambda p: p.stat().st_mtime)
 
             # 第二轮输入：优先 round2_combined_*.md，其次 combined_report_*.md / report_*.md
             candidates = (
-                list(reports_dir.glob("round2_combined_*.md"))
-                or list(reports_dir.glob("combined_report_*.md"))
-                or list(reports_dir.glob("report_*.md"))
+                list(reports_root.glob("**/round2_combined_*.md"))
+                or list(reports_root.glob("**/combined_report_*.md"))
+                or list(reports_root.glob("**/report_*.md"))
             )
             if not candidates:
-                logger.error("在 %s 下未找到 round2_combined_*.md / combined_report_*.md / report_*.md。", reports_dir)
+                logger.error("在 %s 下未找到 round2_combined_*.md / combined_report_*.md / report_*.md。", reports_root)
                 return 1
             round2_path = max(candidates, key=lambda p: p.stat().st_mtime)
 
@@ -587,6 +581,8 @@ def main() -> int:
                 logger.error("第三轮综合决策服务未返回结果，请检查 LLM 配置。")
                 return 1
 
+            # 将第三轮输出写回与第一轮报告相同的目录，保持同一批次聚合
+            reports_dir = round1_path.parent
             reports_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             out_path = reports_dir / f"round3_decision_{ts}.md"
@@ -748,7 +744,6 @@ def main() -> int:
         if args.market_review:
             from src.analyzer import GeminiAnalyzer
             from src.core.market_review import run_market_review
-            from src.notification import NotificationService
             from src.search_service import SearchService
 
             logger.info("模式: 仅大盘复盘")

@@ -305,18 +305,6 @@ python main.py --mode full
 > 有建议？欢迎 [提交 Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
 
 
----
-
-## ☕ 支持项目
-
-如果本项目对你有帮助，欢迎支持项目的持续维护与迭代，感谢支持 🙏  
-赞赏可备注联系方式，祝股市长虹
-
-| 支付宝 (Alipay) | 微信支付 (WeChat) | Ko-fi |
-| :---: | :---: | :---: |
-| <img src="./sources/alipay.jpg" width="200" alt="Alipay"> | <img src="./sources/wechatpay.jpg" width="200" alt="WeChat Pay"> | <a href="https://ko-fi.com/mumu157" target="_blank"><img src="./sources/ko-fi.png" width="200" alt="Ko-fi"></a> |
-
----
 
 ## 🤝 贡献
 
@@ -349,16 +337,16 @@ npm run build
 这将有助于项目的持续维护和社区发展。
 
 ## 📬 联系与合作
-- GitHub Issues：[提交 Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
+- GitHub Issues：[提交 Issue](https://github.com/qchen34/daily_stock_analysis/issues)
 
 ## ⭐ Star History
 **如果觉得有用，请给个 ⭐ Star 支持一下！**
 
-<a href="https://star-history.com/#ZhuLinsen/daily_stock_analysis&Date">
+<a href="https://star-history.com/#qchen34/daily_stock_analysis&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ZhuLinsen/daily_stock_analysis&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ZhuLinsen/daily_stock_analysis&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ZhuLinsen/daily_stock_analysis&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=qchen34/daily_stock_analysis&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=qchen34/daily_stock_analysis&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=qchen34/daily_stock_analysis&type=Date" />
  </picture>
 </a>
 
