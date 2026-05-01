@@ -184,6 +184,8 @@ jobs:
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
+          # 设为 false 时仍执行大盘复盘并写入 reports/，不向飞书/Telegram/邮件等推送，也不写入合并推送与飞书云文档正文
+          MARKET_REVIEW_NOTIFY: ${{ vars.MARKET_REVIEW_NOTIFY || secrets.MARKET_REVIEW_NOTIFY || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TRADING_DAY_CHECK_ENABLED: ${{ vars.TRADING_DAY_CHECK_ENABLED || secrets.TRADING_DAY_CHECK_ENABLED || 'true' }}
           
@@ -220,6 +222,10 @@ jobs:
           echo "🎯 运行模式: $MODE"
           echo "📊 自选股: $STOCK_LIST"
           echo "📝 报告类型: $REPORT_TYPE"
+          case "${MARKET_REVIEW_NOTIFY,,}" in
+            0|false|no|off) echo "📉 大盘复盘推送: 已关闭（MARKET_REVIEW_NOTIFY=false，仍会生成报告）" ;;
+            *) echo "📈 大盘复盘推送: 已开启" ;;
+          esac
           echo ""
           echo "=========================================="
           echo "📋 配置检查"

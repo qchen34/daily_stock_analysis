@@ -441,7 +441,7 @@ def run_full_analysis(
         if getattr(args, 'single_notify', False):
             config.single_stock_notify = True
 
-        # Issue #190: 个股与大盘复盘合并推送
+        # Issue #190: 个股与大盘复盘合并推送（MARKET_REVIEW_NOTIFY=false 时合并消息仅含个股）
         merge_notification = (
             getattr(config, 'merge_email_notification', False)
             and config.market_review_enabled
@@ -492,7 +492,9 @@ def run_full_analysis(
                 notifier=pipeline.notifier,
                 analyzer=pipeline.analyzer,
                 search_service=pipeline.search_service,
-                send_notification=not args.no_notify,
+                send_notification=(
+                    not args.no_notify and getattr(config, 'market_review_notify', True)
+                ),
                 merge_notification=merge_notification,
                 override_region=effective_region,
             )
@@ -500,10 +502,10 @@ def run_full_analysis(
             if review_result:
                 market_report = review_result
 
-        # Issue #190: 合并推送（个股+大盘复盘）
+        # Issue #190: 合并推送（个股+大盘复盘；MARKET_REVIEW_NOTIFY=false 时仅合并个股）
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
-            if market_report:
+            if market_report and getattr(config, 'market_review_notify', True):
                 parts.append(f"# 📈 大盘复盘\n\n{market_report}")
             if results:
                 dashboard_content = pipeline.notifier.generate_aggregate_report(
@@ -547,8 +549,8 @@ def run_full_analysis(
                 # 2. 准备内容 (拼接个股分析和大盘复盘)
                 full_content = ""
 
-                # 添加大盘复盘内容（如果有）
-                if market_report:
+                # 添加大盘复盘内容（如果有且允许推送侧写入文档）
+                if market_report and getattr(config, 'market_review_notify', True):
                     full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
 
                 # 添加个股决策仪表盘（使用 NotificationService 生成，按 report_type 分支）
@@ -874,7 +876,9 @@ def main() -> int:
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
-                send_notification=not args.no_notify,
+                send_notification=(
+                    not args.no_notify and getattr(config, 'market_review_notify', True)
+                ),
                 override_region=effective_region,
             )
             return 0

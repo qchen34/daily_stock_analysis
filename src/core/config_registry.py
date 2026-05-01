@@ -1437,6 +1437,23 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {"enum": ["cn", "us", "both"]},
         "display_order": 47,
     },
+    "MARKET_REVIEW_NOTIFY": {
+        "title": "Market Review Notify",
+        "description": (
+            "When enabled, market review is pushed to notification channels (Feishu, Telegram, email, etc.). "
+            "When disabled, review still runs and is saved under reports/, but is not sent or included in merged pushes / Feishu cloud doc body."
+        ),
+        "category": "system",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "true",
+        "options": [],
+        "validation": {},
+        "display_order": 48,
+    },
     "MAX_WORKERS": {
         "title": "Max Workers",
         "description": "Maximum concurrent analysis threads. Keep low to avoid API rate limits.",

@@ -130,7 +130,7 @@ def run_market_review(
                 else:
                     logger.warning("大盘复盘推送失败")
             elif not send_notification:
-                logger.info("已跳过推送通知 (--no-notify)")
+                logger.info("已跳过大盘复盘渠道推送（--no-notify 或 MARKET_REVIEW_NOTIFY=false）")
             
             return review_report
         
